@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>小恐龍進化 APP - 終極金幣冒險版</title>
+    
+    <style>
+        /* 基礎設置 */
+        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        body { 
+            margin: 0; padding: 0; 
+            display: flex; justify-content: center; align-items: center; 
+            height: 100vh; background-color: #f0f0f0; 
+            font-family: -apple-system, system-ui, sans-serif;
+            overflow: hidden; touch-action: none;
+        }
+
+        #game-container { 
+            position: relative; 
+            width: 100vw; height: 100vh; 
+            max-width: 800px; max-height: 400px;
+            background-color: white; 
+            border-bottom: 3px solid #535353; 
+            overflow: hidden; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        /* 恐龍實體：讀取本地圖片 dino.png */
+        #dino { 
+            position: absolute; bottom: 0; left: 50px; 
+            width: 50px; height: 50px; 
+            background-image: url('dino.png'); 
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            z-index: 10;
+        }
+
+        /* 進化視覺效果 (無無敵功能) */
+        #dino.evo-gold { filter: drop-shadow(0 0 8px #FFD700) sepia(0.3); }
+        #dino.evo-flame { filter: drop-shadow(0 0 10px #ff4757) hue-rotate(330deg); }
+
+        /* 障礙物樣式 */
+        .obstacle { position: absolute; bottom: 0; z-index: 5; background-color: #535353; border-radius: 3px; }
+        .bird { bottom: 85px; border-radius: 50%; background-color: #888; }
+
+        /* 金幣與蘑菇樣式 */
+        .item { position: absolute; z-index: 6; font-size: 24px; display: flex; justify-content: center; align-items: center; }
+        
+        /* 得分/扣分漂浮文字特效 */
+        .pop-text {
+            position: absolute; font-weight: bold; font-size: 20px; z-index: 40;
+            animation: floatUp 0.6s ease-out forwards;
+        }
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-40px); }
+        }
+
+        /* UI 與 訊息 */
+        #ui { 
+            position: absolute; top: 15px; width: 100%; 
+            display: flex; justify-content: space-between; padding: 0 20px; 
+            font-weight: bold; color: #535353; z-index: 20;
+        }
+        #msg { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            text-align: center; display: none; z-index: 30; 
+            background: rgba(255,255,255,0.95); padding: 30px; 
+            border-radius: 12px; border: 3px solid #535353;
+        }
+        .particle { position: absolute; width: 6px; height: 6px; background: #ff6b81; border-radius: 50%; animation: pFly 0.5s forwards; }
+        @keyframes pFly { to { opacity: 0; transform: translate(-20px, -30px); } }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui">
+            <div id="evo-status">🐣 幼年恐龍</div>
+            <div id="score">SCORE: 00000</div>
+        </div>
+        <div id="dino"></div>
+        <div id="msg">
+            <h1 style="margin:0">GAME OVER</h1>
+            <p>點擊畫面重新開始</p>
+        </div>
+    </div>
+
+<script>
+    const container = document.getElementById('game-container');
+    const dinoEl = document.getElementById('dino');
+    const scoreEl = document.getElementById('score');
+    const statusEl = document.getElementById('evo-status');
+    const msgEl = document.getElementById('msg');
+
+    let isRun = true, score = 0, baseSpeed = 8, evo = 'normal';
+    let dino = { x: 50, y: 0, vy: 0, w: 40, h: 45, jump: false };
+    let obs = [], items = [], timer = 0, itemTimer = 0;
+
+    const handleAction = (e) => {
+        if (e.cancelable) e.preventDefault();
+        if (!isRun) { reset(); } 
+        else if (!dino.jump) {
+            dino.vy = -17; 
+            dino.jump = true;
+        }
+    };
+
+    window.addEventListener('touchstart', handleAction, {passive: false});
+    window.addEventListener('mousedown', handleAction);
+    window.addEventListener('keydown', (e) => { if(e.code === 'Space' || e.code === 'ArrowUp') handleAction(e); });
+
+    function gameLoop() {
+        if (!isRun) return;
+
+        // 1. 物理運動
+        dino.vy += 0.95; 
+        dino.y -= dino.vy;
+        if (dino.y <= 0) { dino.y = 0; dino.vy = 0; dino.jump = false; }
+        dinoEl.style.bottom = dino.y + 'px';
+
+        // 2. 分數遞增與關卡速度
+        score++;
+        let displayScore = Math.floor(score/5);
+        scoreEl.innerText = `SCORE: ${displayScore.toString().padStart(5, '0')}`;
+        if (score % 400 === 0) baseSpeed += 0.4;
+
+        // 進化或退化判定
+        if (displayScore >= 1000 && evo !== 'flame') {
+            evo = 'flame'; dinoEl.className = 'evo-flame'; 
+            statusEl.innerText = '🔥 火焰恐龍 (隨機極速挑戰)';
+        } else if (displayScore >= 500 && displayScore < 1000 && evo !== 'gold') {
+            evo = 'gold'; dinoEl.className = 'evo-gold'; 
+            statusEl.innerText = '✨ 黃金恐龍';
+        } else if (displayScore < 500 && evo !== 'normal') {
+            evo = 'normal'; dinoEl.className = '';
+            statusEl.innerText = '🐣 幼年恐龍';
+        }
+
+        if (evo === 'flame' && score % 6 === 0) spawnParticle();
+
+        // 3. 物件邏輯更新
+        updateObstacles(displayScore);
+        updateItems();
+        
+        // 4. 碰撞偵測
+        checkCollision();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function spawnParticle() {
+        const p = document.createElement('div'); p.className = 'particle';
+        p.style.left = (dino.x + 10)+'px'; p.style.bottom = (dino.y + 10)+'px';
+        container.appendChild(p); setTimeout(() => p.remove(), 500);
+    }
+
+    function spawnPopText(text, color, yOffset) {
+        const t = document.createElement('div');
+        t.className = 'pop-text';
+        t.innerText = text;
+        t.style.color = color;
+        t.style.left = (dino.x + 20) + 'px';
+        t.style.bottom = (dino.y + 60 + yOffset) + 'px';
+        container.appendChild(t);
+        setTimeout(() => t.remove(), 600);
+    }
+
+    function updateObstacles(s) {
+        for (let i = obs.length - 1; i >= 0; i--) {
+            obs[i].x -= obs[i].currentSpeed;
+            obs[i].el.style.left = obs[i].x + 'px';
+            if (obs[i].x < -60) { obs[i].el.remove(); obs.splice(i, 1); }
+        }
+
+        if (++timer > (Math.max(25, 80 - baseSpeed * 4))) {
+            let isBird = Math.random() > 0.8 && s > 250;
+            let w = 25, h = isBird ? 25 : 35 + Math.random() * 25;
+            
+            // 隨機速度落差設定為 ±20%
+            let speedModifier = 1 + (Math.random() * 0.4 - 0.2); 
+            let assignedSpeed = baseSpeed * speedModifier;
+
+            const el = document.createElement('div');
+            el.className = 'obstacle' + (isBird ? ' bird' : '');
+            el.style.width = w+'px'; el.style.height = h+'px';
+            el.style.left = '100%';
+            container.appendChild(el);
+            
+            obs.push({ el, x: container.offsetWidth, y: isBird ? 85 : 0, w, h, currentSpeed: assignedSpeed });
+            timer = 0;
+        }
+    }
+
+    function updateItems() {
+        for (let i = items.length - 1; i >= 0; i--) {
+            items[i].x -= baseSpeed; 
+            items[i].el.style.left = items[i].x + 'px';
+            if (items[i].x < -40) { items[i].el.remove(); items.splice(i, 1); }
+        }
+
+        if (++itemTimer > 120) {
+            let type = Math.random() > 0.4 ? 'coin' : 'mushroom'; 
+            let itemY = type === 'coin' ? 70 + Math.random() * 60 : 5; 
+            
+            const el = document.createElement('div');
+            el.className = 'item';
+            el.innerText = type === 'coin' ? '💰' : '🍄';
+            el.style.width = '30px'; el.style.height = '30px';
+            el.style.left = '100%'; el.style.bottom = itemY + 'px';
+            container.appendChild(el);
+
+            items.push({ el, x: container.offsetWidth, y: itemY, w: 30, h: 30, type });
+            itemTimer = 0;
+        }
+    }
+
+    function checkCollision() {
+        let hb = { l: dino.x + 15, r: dino.x + dino.w - 15, t: dino.y + dino.h - 10, b: dino.y + 5 };
+        
+        // 1. 障礙物碰撞（結束遊戲）
+        for (let o of obs) {
+            if (hb.r > o.x && hb.l < o.x + o.w && hb.t > o.y && hb.b < o.y + o.h) {
+                isRun = false; msgEl.style.display = 'block';
+            }
+        }
+
+        // 2. 道具碰撞（得分或扣分）
+        for (let i = items.length - 1; i >= 0; i--) {
+            let item = items[i];
+            if (hb.r > item.x && hb.l < item.x + item.w && hb.t > item.y && hb.b < item.y + item.h) {
+                if (item.type === 'coin') {
+                    score += 500; // 換算成顯示分數為 +100
+                    spawnPopText('+100', '#2ed573', 0);
+                } else if (item.type === 'mushroom') {
+                    score = Math.max(0, score - 250); // 換算成顯示分數為 -50
+                    spawnPopText('-50', '#ff4757', 0);
+                }
+                item.el.remove();
+                items.splice(i, 1);
+            }
+        }
+    }
+
+    function reset() {
+        score = 0; baseSpeed = 8; evo = 'normal'; dino.y = 0; dino.vy = 0; isRun = true;
+        msgEl.style.display = 'none'; dinoEl.className = ''; 
+        statusEl.innerText = '🐣 幼年恐龍';
+        obs.forEach(o => o.el.remove()); obs = [];
+        items.forEach(i => i.el.remove()); items = [];
+        timer = 0; itemTimer = 0;
+        gameLoop();
+    }
+
+    gameLoop();
+</script>
+</body>
+</html>
